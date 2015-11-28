@@ -14,3 +14,6 @@ go build
 ./slack-message-forward
 ```
   Deployment to OpenShift is supported. Please refer to https://github.com/smarterclayton/openshift-go-cart.
+
+# License
+MIT
