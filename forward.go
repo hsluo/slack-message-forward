@@ -9,15 +9,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hsluo/slack-message-forward/Godeps/_workspace/src/github.com/garyburd/redigo/redis"
-	"github.com/hsluo/slack-message-forward/Godeps/_workspace/src/github.com/hsluo/slack-bot"
-	"github.com/hsluo/slack-message-forward/Godeps/_workspace/src/golang.org/x/net/websocket"
+	"github.com/garyburd/redigo/redis"
+	"github.com/hsluo/slack-bot"
+	"golang.org/x/net/websocket"
 )
 
-const KEY_CHANNELS = "channels"
+const (
+	KEY_CHANNELS = "channels"
+)
 
 var (
-	bot slack.Bot
+	bot       slack.Bot
+	redisPool *redis.Pool
 )
 
 func handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -37,11 +40,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	} else {
 		for i := range channels {
 			if fromChan == channels[i].Name {
-				c, err := redis.Dial("tcp", ":6379")
-				if err != nil {
-					log.Println(err)
-					return
-				}
+				c := redisPool.Get()
 				defer c.Close()
 
 				c.Send("HSET", channels[i].Id, query, toChanId)
@@ -60,11 +59,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func forward(incoming, outgoing chan slack.Message) {
-	c, err := redis.Dial("tcp", ":6379")
-	if err != nil {
-		log.Println(err)
-		return
-	}
+	c := redisPool.Get()
 	defer c.Close()
 	for m := range incoming {
 		if m.Type != "message" {
@@ -151,17 +146,51 @@ func startServer() {
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	credentials, err := slack.LoadCredentials("credentials.json")
+
+	credentialsPath := os.Getenv("OPENSHIFT_DATA_DIR") + "credentials.json"
+	credentials, err := slack.LoadCredentials(credentialsPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	bot = credentials.Bot
+
+	redisHost := os.Getenv("REDISCLOUD_HOSTNAME")
+	redisPort := os.Getenv("REDISCLOUD_PORT")
+	redisPassword := os.Getenv("REDISCLOUD_PASSWORD")
+	var redisServer string
+	if redisHost == "" || redisPort == "" {
+		redisServer = ":6379"
+	} else {
+		redisServer = fmt.Sprintf("%s:%s", redisHost, redisPort)
+	}
+	redisPool = &redis.Pool{
+		MaxIdle:     3,
+		IdleTimeout: 240 * time.Second,
+		Dial: func() (redis.Conn, error) {
+			c, err := redis.Dial("tcp", redisServer)
+			if err != nil {
+				return nil, err
+			}
+			if redisPassword != "" {
+				if _, err := c.Do("AUTH", redisPassword); err != nil {
+					c.Close()
+					return nil, err
+				}
+			}
+			return c, err
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
+	}
 
 	http.HandleFunc("/register", slack.ValidateCommand(
 		http.HandlerFunc(handleRegister), credentials.Commands))
 }
 
 func main() {
+	defer redisPool.Close()
 	go forward(startRtm(bot.Token))
 
 	startServer()
