@@ -6,14 +6,15 @@ Forward messages between channels
 
 # Usage
 - Config a slash command integration on Slack
-- Copy `credentials.json.default` to `credentials.json` and fill in your Slack config. 
+- Copy `credentials.json.default` to `credentials.json` and fill in your Slack config
 - Run the program
 ```
 go get github.com/hsluo/slack-message-forward
 go build
 ./slack-message-forward
 ```
-  Deployment to OpenShift is supported. Please refer to https://github.com/smarterclayton/openshift-go-cart.
+  Deployment to OpenShift is supported. Please refer to https://github.com/smarterclayton/openshift-go-cart
+- Using the slash command, e.g. `/listen general coffee`, will forward messages containing "coffee" in #general to current channel
 
 # License
 MIT
